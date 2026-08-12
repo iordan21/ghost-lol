@@ -19,6 +19,12 @@
       Ctrl+Alt+A   liga/desliga o auto-aceitar
       Ctrl+Alt+O   alterna entre Offline e Online
 
+    Offline fixado:
+    entrar em fila, selecao de campeao ou partida faz o cliente trocar o status
+    sozinho para ausente. Escolher Offline na HUD fixa a escolha - o Ghost
+    devolve para offline sempre que perceber a mudanca, e o botao mostra um
+    visto enquanto isso vale. Escolher Online ou Ausente solta a fixacao.
+
     Por que curl.exe e nao Invoke-RestMethod:
     o LCU exige TLS 1.3 e o .NET Framework (base do PS 5.1) nao fecha esse
     handshake - da "conexao subjacente fechada". curl.exe ja vem no Windows.
@@ -217,6 +223,11 @@ $script:Session      = $null
 $script:AutoAceitar  = [bool]$AutoAceitarLigado
 $script:Availability = $null
 $script:Tick         = 0
+# Offline "fixado": entrar em selecao de campeao ou em partida faz o cliente
+# trocar o status sozinho para ausente. Enquanto isso estiver ligado, o Ghost
+# devolve para offline toda vez que perceber a mudanca.
+$script:OfflineFixado = $false
+$script:AvisouReforco = $false   # evita repetir a mesma linha de log
 $script:Ocupado      = $false   # trava reentrancia: um tick nao entra no outro
 
 # ===========================================================================
@@ -401,6 +412,10 @@ function Update-BotoesStatus {
         $b.BackColor = $C.Painel
         $b.ForeColor = $C.Fraco
     }
+    # O visto avisa que o offline esta fixado. Sem essa marca o comportamento
+    # viraria mistério: a pessoa muda o status no cliente e ele "volta sozinho".
+    # O caractere vai por codigo porque este arquivo e ASCII de proposito.
+    $btnOffline.Text = if ($script:OfflineFixado) { 'Offline ' + [char]0x2713 } else { 'Offline' }
     switch ($script:Availability) {
         'chat'    { $btnOnline.BackColor  = $C.Verde;    $btnOnline.ForeColor  = $C.Texto }
         'away'    { $btnAusente.BackColor = $C.Ambar;    $btnAusente.ForeColor = $C.Texto }
@@ -416,9 +431,22 @@ function Update-BotoesStatus {
 # ===========================================================================
 
 function Set-Availability {
-    param([Parameter(Mandatory)][ValidateSet('chat', 'away', 'offline')][string] $Valor)
+    param(
+        [Parameter(Mandatory)][ValidateSet('chat', 'away', 'offline')][string] $Valor,
+        # Chamada automatica de reforco, nao escolha da pessoa: nao mexe no
+        # "fixado" e nao escreve no log a cada vez.
+        [switch] $Interno
+    )
 
     if (-not $script:Session) { Write-Log 'Cliente do LoL nao esta aberto.' $C.Vermelho; return }
+
+    # Escolher qualquer status pela HUD e o que liga e desliga o fixado.
+    # Assim a regra e simples de prever: fixa em Offline, solta em Online
+    # ou Ausente.
+    if (-not $Interno) {
+        $script:OfflineFixado = ($Valor -eq 'offline')
+        $script:AvisouReforco = $false
+    }
 
     $r = Invoke-Lcu -Session $script:Session -Path '/lol-chat/v1/me' -Method PUT `
                     -JsonBody ('{"availability":"' + $Valor + '"}')
@@ -426,8 +454,11 @@ function Set-Availability {
     if ($r.Status -ge 200 -and $r.Status -lt 300) {
         $script:Availability = $Valor
         Update-BotoesStatus
-        $nome = switch ($Valor) { 'chat' { 'Online' } 'away' { 'Ausente' } 'offline' { 'Offline' } }
-        Write-Log ("Status: {0}." -f $nome) $C.Texto
+        if (-not $Interno) {
+            $nome = switch ($Valor) { 'chat' { 'Online' } 'away' { 'Ausente' } 'offline' { 'Offline' } }
+            if ($Valor -eq 'offline') { Write-Log 'Offline fixado.' $C.Azul }
+            else                      { Write-Log ("Status: {0}." -f $nome) $C.Texto }
+        }
     }
     else {
         Write-Log ("Falhou ao trocar status (HTTP {0})." -f $r.Status) $C.Vermelho
@@ -547,9 +578,22 @@ $timer.Add_Tick({
             $chat = Invoke-Lcu -Session $script:Session -Path '/lol-chat/v1/me'
             if ($chat.Status -eq 0) { Disconnect-Cliente; return }
             $j = ConvertFrom-LcuBody $chat
-            if ($j -and $j.availability -ne $script:Availability) {
-                $script:Availability = $j.availability
-                Update-BotoesStatus
+            if ($j) {
+                if ($j.availability -eq 'offline') { $script:AvisouReforco = $false }
+
+                if ($script:OfflineFixado -and $j.availability -ne 'offline') {
+                    # Foi o cliente que mudou (entrou em fila, selecao de
+                    # campeao ou partida). Devolve pro offline.
+                    if (-not $script:AvisouReforco) {
+                        Write-Log 'O cliente saiu do offline. Devolvendo.' $C.Azul
+                        $script:AvisouReforco = $true
+                    }
+                    Set-Availability -Valor 'offline' -Interno
+                }
+                elseif ($j.availability -ne $script:Availability) {
+                    $script:Availability = $j.availability
+                    Update-BotoesStatus
+                }
             }
         }
     }

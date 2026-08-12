@@ -10,6 +10,7 @@ HUD flutuante para o League of Legends: aceita a partida automaticamente e troca
 
 - Aceita o ready check sozinho, com atraso configurável
 - Status do chat em um clique — incluindo *aparecer offline*, que o cliente não oferece
+- **Offline fixado**: entrar em partida faz o cliente te tirar do offline sozinho. Enquanto o botão mostra `Offline ✓`, o Ghost devolve. Escolher Online ou Ausente solta
 - Atalhos globais: `Ctrl+Alt+A` (auto-aceitar) e `Ctrl+Alt+O` (offline/online)
 - Janela sem borda, arrastável, sempre por cima
 
