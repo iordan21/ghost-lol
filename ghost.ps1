@@ -498,7 +498,8 @@ function Disconnect-Cliente {
 $timer          = New-Object System.Windows.Forms.Timer
 $timer.Interval = $IntervaloMs
 $timer.Add_Tick({
-    # As chamadas rodam na thread da UI. Sao localhost (~15ms), mas se o
+    # As chamadas rodam na thread da UI. Sao localhost (~27ms medidos: 13ms de
+    # requisicao mais o custo de subir o processo do curl), mas se o
     # cliente morrer no meio o --max-time 3 seguraria a janela por 3s - por
     # isso a trava: nunca dois ticks ao mesmo tempo.
     if ($script:Ocupado) { return }
