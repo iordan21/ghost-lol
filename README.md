@@ -38,7 +38,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ghost.ps1
 | `-IgnorarAutofill` | off | Escolhe em qualquer lane, mesmo numa que você não pediu |
 | `-Simular` | off | Escreve no log o que faria na seleção, sem tocar nela |
 
-Ou clique no `ghost.bat`.
+Ou clique num dos dois `.bat`:
+
+- **`ghost.bat`** — o normal. Sobe a HUD e some; o console nem pisca.
+- **`ghost-console.bat`** — o mesmo, mas com o console à vista e uma pausa no fim. É o que você usa quando o Ghost não abre e você quer ler o erro em vez de ver a janela fechar na sua cara.
+
+Os dois repassam os parâmetros da tabela acima, e funcionam chamados de qualquer pasta.
 
 Preferências ficam em `%APPDATA%\Ghost\ghost.json` — apagar o arquivo volta tudo ao padrão. Os ícones dos campeões ficam em `%APPDATA%\Ghost\icones\` (~6 MB, baixados uma vez do próprio cliente).
 
