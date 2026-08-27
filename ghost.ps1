@@ -555,7 +555,12 @@ $titulo.Text      = 'conectando...'
 $titulo.ForeColor = $C.Texto
 $titulo.Font      = $FonteTitulo
 $titulo.Location  = New-Object System.Drawing.Point(28, 7)
-$titulo.Size      = New-Object System.Drawing.Size(168, 16)
+# 146 e nao 168: o rotulo ia ate x=196 e cobria 18 dos 24 pixels do botao de
+# minimizar, que comeca em 178. Controle adicionado depois no WinForms fica
+# ATRAS, entao o nick, que entra antes, era desenhado por cima - o botao
+# existia, do tamanho certo, e simplesmente nao dava pra ver nem clicar.
+# 146 para em x=174 e deixa a faixa dos dois botoes livre.
+$titulo.Size      = New-Object System.Drawing.Size(146, 16)
 $header.Controls.Add($titulo)
 
 # Minimizar existe porque a janela nao tem barra de titulo pra isso. Ela
@@ -568,7 +573,15 @@ $btnFechar.ForeColor = $C.Fraco
 $btnFechar.Add_MouseEnter({ $btnFechar.BackColor = $C.Vermelho; $btnFechar.ForeColor = $C.Texto })
 $btnFechar.Add_MouseLeave({ $btnFechar.BackColor = $C.Painel;   $btnFechar.ForeColor = $C.Fraco })
 $btnFechar.Add_Click({ $form.Close() })
-$header.Controls.Add($btnFechar)
+
+$btnMin.Font      = $FonteMini
+$btnMin.ForeColor = $C.Fraco
+$btnMin.Add_MouseEnter({ $btnMin.BackColor = $C.Cinza;  $btnMin.ForeColor = $C.Texto })
+$btnMin.Add_MouseLeave({ $btnMin.BackColor = $C.Painel; $btnMin.ForeColor = $C.Fraco })
+
+# AddRange com os dois: o btnMin estava sendo criado e ganhando o Add_Click,
+# mas nunca entrava em container nenhum - existia no codigo e nao na tela.
+$header.Controls.AddRange(@($btnMin, $btnFechar))
 
 # Arrastar pelo cabecalho: guardo onde o mouse pegou e movo por diferenca.
 $script:Arrastando = $false
