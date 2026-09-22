@@ -86,7 +86,7 @@ Os 173 campeões funcionam, inclusive os quatro cujo apelido interno não bate c
 
 ### Feitiços de invocador
 
-Da mesma página saem os **dois feitiços mais jogados** naquela lane, e o Ghost coloca os dois na sua seleção — é o que o botão de importar do op.gg faz. Com uma regra a mais: **quem já estava numa tecla fica nela.** Se você joga Flash no F e a dupla nova tem Flash, o Flash continua no F e o outro entra no D. Só quando nenhum dos dois estava na seleção ele usa a ordem do site.
+Da mesma página saem os **dois feitiços mais jogados** naquela lane, e o Ghost coloca os dois na sua seleção — é o que o botão de importar do op.gg faz. A tecla do Flash você escolhe na tela de abertura: **D**, **F**, ou *onde estava*. Nesse último, quem já estava numa tecla fica nela — Flash no F continua no F, o outro entra no D — e só quando nenhum dos dois estava na seleção ele usa a ordem do site.
 
 Feitiço não tem plano B: se a runa veio da Riot porque o op.gg falhou, os seus ficam como estavam, e o log avisa. `-SemFeiticos` desliga só essa parte.
 

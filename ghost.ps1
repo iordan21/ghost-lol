@@ -72,9 +72,10 @@
     do campeao. op.gg fora do ar ou campeao sem pagina la: cai na
     recomendacao da propria Riot, que vem do cliente e nao precisa de
     internet.
-    Junto com a runa vao os dois feiticos de invocador mais jogados,
-    e quem ja estava numa tecla fica nela. -SemRunas desliga tudo;
-    -SemFeiticos deixa a runa e nao mexe nos feiticos.
+    Junto com a runa vao os dois feiticos de invocador mais jogados.
+    A tecla do Flash (D ou F) se escolhe na tela de abertura; sem
+    escolha, quem ja estava numa tecla fica nela. -SemRunas desliga
+    tudo; -SemFeiticos deixa a runa e nao mexe nos feiticos.
 
     Tela de abertura:
     o Ghost pergunta antes de subir quais das cinco automacoes voce quer.
@@ -392,6 +393,7 @@ function Export-Config {
             Picks = @($script:Picks); Bans = @($script:Bans)
             AutoPick = $script:AutoPick; AutoBan = $script:AutoBan
             AutoRuna = $script:AutoRuna
+            FlashEm  = $script:FlashEm
             Recursos = $script:Recursos
         } | ConvertTo-Json -Compress
         [System.IO.File]::WriteAllText($script:ArqConfig, $json, [System.Text.Encoding]::UTF8)
@@ -413,6 +415,7 @@ $script:LanesLogadas      = $null    # ultima linha de lane escrita no log
 $script:AutofillBloqueado = $false   # autofill parou o pick nesta selecao
 $script:AutoRuna       = $true    # gravar a runa ao travar o campeao
 $script:AutoFeiticos   = -not $SemFeiticos   # trocar os feiticos junto; so por parametro
+$script:FlashEm        = ''       # 'D', 'F', ou vazio = fica na tecla em que estava
 $script:RunaJob        = $null    # busca no op.gg em andamento
 $script:CacheRunas     = @{}      # 'champId|LANE' -> runa ja buscada
 $script:RunaFeitaPara  = ''       # chave ja resolvida, pra nao repetir
@@ -449,6 +452,10 @@ if ($script:Config) {
     # a runa sem ninguem ter pedido.
     if ($null -ne $script:Config.AutoRuna) {
         $script:AutoRuna = [bool]$script:Config.AutoRuna
+    }
+    # So os dois valores validos entram; qualquer outra coisa e "onde estava".
+    if ([string]$script:Config.FlashEm -in @('D', 'F')) {
+        $script:FlashEm = [string]$script:Config.FlashEm
     }
 }
 # Fora do bloco de proposito: o interruptor vale tambem na primeira abertura,
@@ -1341,7 +1348,7 @@ function Show-JanelaSetup {
     $jan.MinimizeBox     = $false
     $jan.StartPosition   = 'CenterScreen'
     $jan.BackColor       = $C.Fundo
-    $jan.ClientSize      = New-Object System.Drawing.Size(340, 322)
+    $jan.ClientSize      = New-Object System.Drawing.Size(340, 354)
     if ($form.Icon) { $jan.Icon = $form.Icon }
 
     $tit           = New-Object System.Windows.Forms.Label
@@ -1376,8 +1383,42 @@ function Show-JanelaSetup {
         'Runa do op.gg na pagina Ghost, e os dois feiticos.' `
         ([bool]$script:Recursos.Runa) 238
 
-    $btnOk       = New-Botao -Texto 'OK'        -X 176 -Y 282 -W 70 -H 28 -Cor $C.Verde
-    $btnCancelar = New-Botao -Texto 'Cancelar'  -X 252 -Y 282 -W 70 -H 28 -Cor $C.Painel
+    # Tecla do Flash. Vai num painel proprio por dois motivos: RadioButton se
+    # agrupa pelo container, e o painel inteiro apaga junto com a runa - o
+    # handler acha ele pelo nome, sem closure.
+    $pnFlash          = New-Object System.Windows.Forms.Panel
+    $pnFlash.Name     = 'pnFlash'
+    $pnFlash.Location = New-Object System.Drawing.Point(37, 276)
+    $pnFlash.Size     = New-Object System.Drawing.Size(290, 22)
+    $pnFlash.Enabled  = [bool]$script:Recursos.Runa
+    $lbFlash           = New-Object System.Windows.Forms.Label
+    $lbFlash.Text      = 'Flash na tecla:'
+    $lbFlash.ForeColor = $C.Fraco
+    $lbFlash.Font      = $FonteMini
+    $lbFlash.Location  = New-Object System.Drawing.Point(0, 4)
+    $lbFlash.AutoSize  = $true
+    $pnFlash.Controls.Add($lbFlash)
+    $i = 0
+    foreach ($op in @(@('D', 'D', 82), @('F', 'F', 122), @('onde estava', '', 162))) {
+        $rb           = New-Object System.Windows.Forms.RadioButton
+        $rb.Name      = 'rbFlash' + $i
+        $rb.Text      = $op[0]
+        $rb.Tag       = $op[1]
+        $rb.Checked   = ($script:FlashEm -eq $op[1])
+        $rb.ForeColor = $C.Texto
+        $rb.Font      = $FonteMini
+        $rb.Location  = New-Object System.Drawing.Point($op[2], 1)
+        $rb.AutoSize  = $true
+        $pnFlash.Controls.Add($rb)
+        $i++
+    }
+    $jan.Controls.Add($pnFlash)
+    $cxRuna.Add_CheckedChanged({ param($s, $e)
+        $s.FindForm().Controls['pnFlash'].Enabled = $s.Checked
+    })
+
+    $btnOk       = New-Botao -Texto 'OK'        -X 176 -Y 314 -W 70 -H 28 -Cor $C.Verde
+    $btnCancelar = New-Botao -Texto 'Cancelar'  -X 252 -Y 314 -W 70 -H 28 -Cor $C.Painel
     $jan.Controls.AddRange(@($btnOk, $btnCancelar))
     $jan.AcceptButton = $btnOk
     $jan.CancelButton = $btnCancelar
@@ -1397,6 +1438,9 @@ function Show-JanelaSetup {
         $script:Recursos.Pick    = [bool]$cxPick.Checked
         $script:Recursos.Ban     = [bool]$cxBan.Checked
         $script:Recursos.Runa    = [bool]$cxRuna.Checked
+        foreach ($rb in $pnFlash.Controls) {
+            if ($rb -is [System.Windows.Forms.RadioButton] -and $rb.Checked) { $script:FlashEm = [string]$rb.Tag }
+        }
         Sync-Automacoes
     }
     $jan.Dispose()
@@ -1963,10 +2007,13 @@ function Set-RunaGhost {
     return $true
 }
 
-# Poe os dois feiticos nas teclas D e F. A regra da tecla: se um dos dois ja
-# esta na sua selecao, fica onde estava; o outro entra na vaga que sobrou.
-# Quem joga Flash no F ha anos nao quer o Ghost trocando isso a cada partida.
-# Sem nenhum dos dois na selecao, vai na ordem do op.gg.
+# Poe os dois feiticos nas teclas D e F. Quem decide a ordem:
+#
+# 1. A tecla do Flash escolhida na tela de abertura ($script:FlashEm), se a
+#    dupla tiver Flash - e quase toda dupla tem.
+# 2. Senao, quem ja estava na selecao fica onde estava, e o outro entra na
+#    vaga. Quem joga Flash no F ha anos nao quer o Ghost trocando isso.
+# 3. Sem nenhum dos dois na selecao, a ordem do op.gg.
 function Set-FeiticosGhost {
     param($Feiticos, [int]$AtualD, [int]$AtualF)
 
@@ -1975,15 +2022,18 @@ function Set-FeiticosGhost {
     $a = [int]$Feiticos[0]
     $b = [int]$Feiticos[1]
 
-    # Ja esta assim, em qualquer ordem: nao tem o que fazer.
-    if (($AtualD -eq $a -and $AtualF -eq $b) -or ($AtualD -eq $b -and $AtualF -eq $a)) {
-        return $true
-    }
-
+    $flash = [int](Get-TabelaFeiticos).SummonerFlash[0]
     $d = $a; $f = $b
-    if ($a -eq $AtualF -or $b -eq $AtualD) { $d = $b; $f = $a }
+    if ($script:FlashEm -in @('D', 'F') -and ($a -eq $flash -or $b -eq $flash)) {
+        if (($script:FlashEm -eq 'D' -and $b -eq $flash) -or
+            ($script:FlashEm -eq 'F' -and $a -eq $flash)) { $d = $b; $f = $a }
+    }
+    elseif ($a -eq $AtualF -or $b -eq $AtualD) { $d = $b; $f = $a }
 
-    $texto = '{0} + {1}' -f (Get-NomeFeitico $d), (Get-NomeFeitico $f)
+    # Ja esta exatamente assim: nao tem o que fazer.
+    if ($AtualD -eq $d -and $AtualF -eq $f) { return $true }
+
+    $texto = '{0} (D) + {1} (F)' -f (Get-NomeFeitico $d), (Get-NomeFeitico $f)
     if ($Simular) {
         Write-Log ("SIMULADO: feiticos {0}." -f $texto) $C.Azul
         return $true

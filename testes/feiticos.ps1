@@ -11,6 +11,7 @@ Invoke-Expression (Get-FonteFuncao @('ConvertTo-LaneNormal', 'ConvertTo-LaneOpGg
 $script:Curl = (Get-Command curl.exe).Source
 $Simular = $false
 $C = @{ Azul = 1; Verde = 2; Vermelho = 3; Ambar = 4; Fraco = 5 }
+$script:FlashEm = ''
 
 # Dubles: anotam em vez de mandar pro cliente. O de log nao devolve nada de
 # proposito - devolver string aqui contaminaria o retorno da funcao testada.
@@ -73,6 +74,21 @@ Checa 'selecao vazia: ordem op.gg' (Manda @(4,12) 0 0)   'True {"spell1Id":4,"sp
 Checa 'ja esta igual: nao manda'   (Manda @(4,12) 4 12)  'True sem chamada'
 Checa 'ja esta invertido: nao manda' (Manda @(4,12) 12 4) 'True sem chamada'
 Checa 'lixo: nao manda'            (Manda @(4,99) 4 12)  'False sem chamada'
+
+Titulo 'tecla do Flash escolhida: ganha da regra de ficar onde estava'
+$script:FlashEm = 'D'
+Checa 'D: Flash estava no F, vai pro D' (Manda @(4,12) 14 4)  'True {"spell1Id":4,"spell2Id":12}'
+Checa 'D: ja estava no D, nao manda'   (Manda @(4,12) 4 12)   'True sem chamada'
+Checa 'D: par invertido, corrige'      (Manda @(4,12) 12 4)   'True {"spell1Id":4,"spell2Id":12}'
+Checa 'D: op.gg mandou Flash em 2o'    (Manda @(21,4) 7 14)   'True {"spell1Id":4,"spell2Id":21}'
+Checa 'D: dupla sem Flash, regra velha' (Manda @(11,6) 6 4)   'True {"spell1Id":6,"spell2Id":11}'
+$script:FlashEm = 'F'
+Checa 'F: Flash estava no D, vai pro F' (Manda @(4,12) 4 14)  'True {"spell1Id":12,"spell2Id":4}'
+Checa 'F: ja estava no F, nao manda'   (Manda @(4,12) 12 4)   'True sem chamada'
+Checa 'F: selecao vazia'               (Manda @(4,12) 0 0)    'True {"spell1Id":12,"spell2Id":4}'
+$script:FlashEm = 'X'
+Checa 'valor invalido = onde estava'  (Manda @(4,12) 14 4)  'True {"spell1Id":12,"spell2Id":4}'
+$script:FlashEm = ''
 [void](Manda @(4,12) 4 14)
 Checa 'PATCH em my-selection' ("{0} {1}" -f $script:Chamadas[0].Method, $script:Chamadas[0].Path) `
       'PATCH /lol-champ-select/v1/session/my-selection'
@@ -81,7 +97,7 @@ Checa 'HTTP 500 -> False'          (Manda @(4,12) 4 14)  'False {"spell1Id":4,"s
 $script:StatusFake = 204
 $Simular = $true
 Checa 'simulado: so log'           (Manda @(4,12) 4 14)  'True sem chamada'
-Checa '  ..e o log diz SIMULADO'   ([bool]($script:Logs -match '^SIMULADO: feiticos Flash \+ Teleporte')) 'True'
+Checa '  ..e o log diz SIMULADO'   ([bool]($script:Logs -match '^SIMULADO: feiticos Flash \(D\) \+ Teleporte \(F\)')) 'True'
 $Simular = $false
 
 Titulo 'busca de verdade no op.gg: a dupla vem junto com a runa'
