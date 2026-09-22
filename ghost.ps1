@@ -67,9 +67,11 @@
     op.gg a runa mais jogada daquele campeao naquela lane e grava numa
     pagina sua. Ele so escreve na pagina cujo nome comeca com "Ghost";
     sem ela nao faz nada e avisa. Edita no lugar, nunca apaga e recria.
-    A busca roda em processo separado pra nao travar a HUD. op.gg fora
-    do ar, campeao sem pagina la, ou modo sem lane: cai na recomendacao
-    da propria Riot, que vem do cliente e nao precisa de internet.
+    A busca roda em processo separado pra nao travar a HUD. Sem lane
+    atribuida (treino, cega, ARAM) ele pede ao op.gg a lane mais jogada
+    do campeao. op.gg fora do ar ou campeao sem pagina la: cai na
+    recomendacao da propria Riot, que vem do cliente e nao precisa de
+    internet.
     Junto com a runa vao os dois feiticos de invocador mais jogados,
     e quem ja estava numa tecla fica nela. -SemRunas desliga tudo;
     -SemFeiticos deixa a runa e nao mexe nos feiticos.
@@ -1693,8 +1695,8 @@ function ConvertTo-LaneOpGg {
 function Start-BuscaRunaOpGg {
     param([string]$Alias, [string]$Lane)
 
+    if (-not $Alias) { return $null }
     $pos = ConvertTo-LaneOpGg $Lane
-    if (-not $pos -or -not $Alias) { return $null }
 
     $base = Join-Path $env:TEMP ('ghost-opgg-' + [guid]::NewGuid().ToString('N'))
     $arq  = "$base.html"
@@ -1705,7 +1707,12 @@ function Start-BuscaRunaOpGg {
     # outro lado. Aqui nao tem quoting nenhum pra dar errado.
     $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
           '(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-    $url = 'https://op.gg/lol/champions/{0}/build/{1}' -f $Alias.ToLowerInvariant(), $pos
+    # Sem lane (treino, cega, ARAM) a URL vai sem posicao e o op.gg serve a
+    # lane mais jogada do campeao, com a mesma runa e a mesma tabela de
+    # feiticos da pagina com lane. Antes isso caia direto na Riot - que nao
+    # tem feitico - e foi assim que o treino ficou sem eles.
+    $url = 'https://op.gg/lol/champions/{0}/build' -f $Alias.ToLowerInvariant()
+    if ($pos) { $url += '/' + $pos }
     # Barra normal na saida, mesma pegadinha que Sync-Icones ja documenta:
     # dentro de aspas num arquivo -K o curl trata a barra invertida como
     # escape, e o caminho do Windows chega destruido. O sintoma engana -
@@ -2088,14 +2095,15 @@ function Update-Runa {
     if ($script:PorId.ContainsKey($champ)) { $alias = $script:PorId[$champ].Alias }
     $script:RunaJob = Start-BuscaRunaOpGg -Alias $alias -Lane $lane
     if (-not $script:RunaJob) {
-        # Sem lane (cega, ARAM) ou sem alias: vai direto pra Riot.
+        # Sem alias, ou sem conseguir subir o curl: vai direto pra Riot.
         $runa = Get-RunaRiot -ChampId $champ -Lane $lane
         if ($runa) { $script:CacheRunas[$chave] = $runa; Set-RunaEFeiticos -Runa $runa -Campeao $nome -FeiticoD $fD -FeiticoF $fF }
         else { Write-Log ("Nao achei runa pra {0}." -f $nome) $C.Ambar }
         $script:RunaFeitaPara = $chave
         return
     }
-    Write-Log ("Buscando runa de {0} no op.gg..." -f $nome) $C.Fraco
+    $onde = if (ConvertTo-LaneOpGg $lane) { '' } else { ' (sem lane: a mais jogada)' }
+    Write-Log ("Buscando runa de {0} no op.gg{1}..." -f $nome, $onde) $C.Fraco
 }
 
 function Set-AcaoSelecao {

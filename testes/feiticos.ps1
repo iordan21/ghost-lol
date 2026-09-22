@@ -85,7 +85,10 @@ Checa '  ..e o log diz SIMULADO'   ([bool]($script:Logs -match '^SIMULADO: feiti
 $Simular = $false
 
 Titulo 'busca de verdade no op.gg: a dupla vem junto com a runa'
-foreach ($c in @(@('Illaoi','top',4), @('LeeSin','jungle',11), @('Lulu','utility',4), @('Jinx','bottom',4))) {
+# Lee Sin sem lane e o caso do treino: o op.gg tem que escolher jungle, e
+# jungle e a unica lane em que Golpear aparece - se vier, a escolha foi certa.
+foreach ($c in @(@('Illaoi','top',4), @('LeeSin','jungle',11), @('Lulu','utility',4),
+                 @('Jinx','bottom',4), @('LeeSin','',11))) {
     $alias = $c[0]; $lane = $c[1]; $temQueTer = $c[2]
     $job = Start-BuscaRunaOpGg -Alias $alias -Lane $lane
     if (-not $job) { Checa "$alias/$lane iniciou" 'nao' 'sim'; continue }
@@ -110,8 +113,11 @@ if (-not (Test-Path -LiteralPath $lock)) {
 }
 else {
     $lf = (Get-Content -LiteralPath $lock -Raw).Trim() -split ':'
-    $ajuda = & $script:Curl -s -k --max-time 10 -u "riot:$($lf[3])" "https://127.0.0.1:$($lf[2])/help?format=Full"
-    Checa 'help lista my-selection' ([bool](($ajuda -join '') -match 'my-selection')) 'True'
+    # O /help lista as operacoes em CamelCase, nao pela URL. E o tipo do corpo
+    # tem que ter spell1Id e spell2Id - e o que o Ghost manda.
+    $ajuda = (& $script:Curl -s -k --max-time 20 -u "riot:$($lf[3])" "https://127.0.0.1:$($lf[2])/help?format=Full") -join ''
+    Checa 'help lista PatchLolChampSelectV1SessionMySelection' ([bool]($ajuda -match 'PatchLolChampSelectV1SessionMySelection')) 'True'
+    Checa 'corpo aceita spell1Id e spell2Id' ([bool]($ajuda -match '"spell1Id"' -and $ajuda -match '"spell2Id"')) 'True'
 }
 
 Fim

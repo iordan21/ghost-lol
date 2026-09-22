@@ -37,8 +37,9 @@ Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 Titulo 'busca de verdade no op.gg'
 # Naotem nao existe: o op.gg devolve pagina, mas sem runa. Tem que falhar
 # limpo, porque e esse caminho que leva pra recomendacao da Riot.
+# Ashe sem lane e o treino: a URL vai sem posicao e o op.gg escolhe.
 foreach ($c in @(@('Illaoi','top'), @('Ahri','middle'), @('Thresh','utility'),
-                 @('Jinx','bottom'), @('Naotem','top'))) {
+                 @('Jinx','bottom'), @('Ashe',''), @('Naotem','top'))) {
     $alias = $c[0]; $lane = $c[1]
     $job = Start-BuscaRunaOpGg -Alias $alias -Lane $lane
     if (-not $job) { Checa "$alias/$lane iniciou" 'nao' 'sim'; continue }

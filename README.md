@@ -78,7 +78,9 @@ Travou o campeão — no automático ou escolhendo na mão —, o Ghost pega a l
 
 **Antes de usar, renomeie uma das suas páginas de runa para `Ghost`.** Ele só escreve numa página cujo nome comece com isso, e edita no lugar em vez de apagar e recriar. Não achou, não faz nada e avisa no log. É essa regra que impede um bug aqui de comer uma página que você montou à mão.
 
-O op.gg **não é API pública, é raspagem** — o dia que mudarem a estrutura da página, quebra. Por isso existe a queda: fora do ar, campeão sem página lá, ou modo sem lane, e ele usa a **recomendação da própria Riot**, servida pelo cliente. Não é a build de maior winrate, mas funciona offline. O log sempre diz qual das duas foi usada.
+Sem lane atribuída — treino, escolha às cegas, ARAM — ele pede ao op.gg a **lane mais jogada** daquele campeão, e o log diz isso.
+
+O op.gg **não é API pública, é raspagem** — o dia que mudarem a estrutura da página, quebra. Por isso existe a queda: fora do ar ou campeão sem página lá, e ele usa a **recomendação da própria Riot**, servida pelo cliente. Não é a build de maior winrate, mas funciona offline. O log sempre diz qual das duas foi usada.
 
 Os 173 campeões funcionam, inclusive os quatro cujo apelido interno não bate com o nome (`MonkeyKing`, `Nunu`, `Renata`, `Bard`) — testados um a um.
 
