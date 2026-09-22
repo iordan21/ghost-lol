@@ -13,7 +13,7 @@ HUD flutuante para o League of Legends: aceita a partida automaticamente e troca
 - **Offline fixado**: entrar em partida faz o cliente te tirar do offline sozinho. Enquanto o botão mostra `Offline ✓`, o Ghost devolve. Escolher Online ou Ausente solta
 - **Auto-pick e auto-ban**, com fila montada numa grade dos 173 campeões
 - **Aviso de autofill**: caiu numa lane que você não pediu, o auto-pick para em vez de travar um campeão que não joga ali
-- **Runa automática**: travou o campeão, busca a runa mais jogada dele naquela lane no op.gg e grava na sua página `Ghost`
+- **Runa automática**: travou o campeão, busca a runa mais jogada dele naquela lane no op.gg e grava na sua página `Ghost` — e coloca os dois feitiços de invocador que vão com ela, sem trocar a tecla do que você já usava
 - **Tela de abertura**: você marca quais automações quer, e a HUD sobe só com elas
 - Atalhos globais: `Ctrl+Alt+A` (auto-aceitar) e `Ctrl+Alt+O` (offline/online)
 - Mostra em que ponto o cliente está: fora de fila, na fila, seleção de campeão, em partida
@@ -34,7 +34,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ghost.ps1
 | `-AutoAceitarLigado` | off | Já abre ativo |
 | `-SegundosAteTravar` | `18` | Tempo com o campeão marcado antes de travar. `0` = instalock |
 | `-Direto` | off | Pula a tela de abertura e usa o que ficou salvo |
-| `-Runas` | on | Grava a runa do campeão travado na página `Ghost` |
+| `-SemRunas` | off | Desliga a runa automática de vez |
+| `-SemFeiticos` | off | Deixa seus feitiços de invocador em paz; só a runa entra |
 | `-IgnorarAutofill` | off | Escolhe em qualquer lane, mesmo numa que você não pediu |
 | `-Simular` | off | Escreve no log o que faria na seleção, sem tocar nela |
 
@@ -81,6 +82,14 @@ O op.gg **não é API pública, é raspagem** — o dia que mudarem a estrutura 
 
 Os 173 campeões funcionam, inclusive os quatro cujo apelido interno não bate com o nome (`MonkeyKing`, `Nunu`, `Renata`, `Bard`) — testados um a um.
 
+### Feitiços de invocador
+
+Da mesma página saem os **dois feitiços mais jogados** naquela lane, e o Ghost coloca os dois na sua seleção — é o que o botão de importar do op.gg faz. Com uma regra a mais: **quem já estava numa tecla fica nela.** Se você joga Flash no F e a dupla nova tem Flash, o Flash continua no F e o outro entra no D. Só quando nenhum dos dois estava na seleção ele usa a ordem do site.
+
+Feitiço não tem plano B: se a runa veio da Riot porque o op.gg falhou, os seus ficam como estavam, e o log avisa. `-SemFeiticos` desliga só essa parte.
+
+> Os feitiços ainda não foram vistos numa seleção de verdade — a leitura do op.gg e a regra da tecla têm teste, a chamada ao cliente não. Rode a primeira com `-Simular`, que escreve no log a dupla que mandaria sem mandar.
+
 ## Como funciona
 
 O cliente do LoL expõe uma API REST local — a **LCU API** — em `https://127.0.0.1:<porta>`. A interface do jogo é um app web que fala com ela, então todo botão da tela é uma chamada HTTP. O Ghost usa os mesmos endpoints:
@@ -98,6 +107,7 @@ O cliente do LoL expõe uma API REST local — a **LCU API** — em `https://127
 | `GET /lol-perks/v1/recommended-pages/...` | a runa que a Riot sugere |
 | `GET /lol-champ-select/v1/session` | de quem é a vez, e do quê |
 | `PATCH /lol-champ-select/v1/session/actions/<id>` | escolher ou banir |
+| `PATCH /lol-champ-select/v1/session/my-selection` | trocar os feitiços de invocador |
 | `GET /lol-game-data/assets/v1/champion-summary.json` | lista de campeões |
 | `GET /lol-game-data/assets/v1/champion-icons/<id>.png` | os ícones |
 
@@ -109,13 +119,15 @@ Porta e senha saem do `lockfile` que o cliente grava na pasta de instalação (`
 powershell -NoProfile -ExecutionPolicy Bypass -File .\testes\rodar.ps1
 ```
 
-Quatro arquivos: gate de autofill, layout da HUD, runas e nome de campeão. Eles **recortam as funções de dentro do `ghost.ps1`** em vez de duplicar código — o script é um arquivo só, com janela e loop no nível de cima, então dot-source abriria a HUD.
+Cinco arquivos: gate de autofill, layout da HUD, runas, feitiços e nome de campeão. Eles **recortam as funções de dentro do `ghost.ps1`** em vez de duplicar código — o script é um arquivo só, com janela e loop no nível de cima, então dot-source abriria a HUD.
 
-Nenhum abre janela nem escreve na sua conta. O de runas busca de verdade no op.gg e precisa de internet; o de nome de campeão precisa do cliente aberto, e se pula sozinho se estiver fechado.
+Nenhum abre janela nem escreve na sua conta. Os de runas e feitiços buscam de verdade no op.gg e precisam de internet; o de nome de campeão precisa do cliente aberto, e se pula sozinho se estiver fechado.
 
 ## Decisões técnicas
 
 **`curl.exe` no lugar de `Invoke-RestMethod`** — a LCU exige TLS 1.3, que o .NET Framework não fecha. O sintoma é um "conexão subjacente fechada" que não diz nada.
+
+**Os interruptores são `-SemRunas` e `-SemFeiticos`, não `-Runas:$false`** — parâmetro `[bool]` não passa por `powershell -File`: tudo chega como texto, e `$false` vira a string `$false`, que o PowerShell recusa converter. É assim que os dois `.bat` e o comando lá em cima chamam o script, então a versão anterior, `-Runas:$false`, só funcionava de dentro de um prompt do PowerShell. `[switch]` passa por qualquer caminho.
 
 **Corpo JSON por arquivo (`-d @arquivo`)** — passar aspas por linha de comando atravessa dois analisadores e chega corrompido; a LCU responde 400.
 

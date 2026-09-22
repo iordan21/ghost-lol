@@ -3,7 +3,9 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'comum.ps1')
 Invoke-Expression (Get-FonteFuncao @('ConvertTo-LaneNormal', 'ConvertTo-LaneOpGg', 'Test-RunaSensata',
-                'Start-BuscaRunaOpGg', 'Read-RunaOpGg', 'Remove-JobRuna'))
+                'Start-BuscaRunaOpGg', 'Read-RunaOpGg', 'Remove-JobRuna',
+                # Read-RunaOpGg le os feiticos da mesma pagina; sem estas tres ela nem roda.
+                'Get-TabelaFeiticos', 'Test-FeiticosSensatos', 'Read-FeiticosOpGg'))
 $script:Curl = (Get-Command curl.exe).Source
 
 Titulo 'lane do cliente para a lane do op.gg'

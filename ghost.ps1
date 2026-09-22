@@ -70,7 +70,9 @@
     A busca roda em processo separado pra nao travar a HUD. op.gg fora
     do ar, campeao sem pagina la, ou modo sem lane: cai na recomendacao
     da propria Riot, que vem do cliente e nao precisa de internet.
-    -Runas:$false desliga.
+    Junto com a runa vao os dois feiticos de invocador mais jogados,
+    e quem ja estava numa tecla fica nela. -SemRunas desliga tudo;
+    -SemFeiticos deixa a runa e nao mexe nos feiticos.
 
     Tela de abertura:
     o Ghost pergunta antes de subir quais das cinco automacoes voce quer.
@@ -111,10 +113,16 @@
     Pula a tela de abertura e sobe a HUD com os recursos salvos da ultima
     vez. Util no atalho de quem ja escolheu e nao quer a pergunta.
 
-.PARAMETER Runas
-    Grava a runa do campeao travado na sua pagina "Ghost". Ligado por
-    padrao - sem uma pagina com esse nome ele nao faz nada de qualquer
-    jeito. -Runas:$false desliga de vez.
+.PARAMETER SemRunas
+    Desliga a runa automatica de vez: nem busca, nem grava. Sem isto ela
+    fica ligada - e sem uma pagina chamada "Ghost" nao faz nada de
+    qualquer jeito. E interruptor, e nao -Runas:$false, porque [bool] nao
+    passa por "powershell -File", que e como os .bat chamam o script.
+
+.PARAMETER SemFeiticos
+    Deixa seus feiticos de invocador em paz: a runa entra, os feiticos
+    ficam como estavam. Sem isto vao os dois que o op.gg mostra como mais
+    jogados. Nao tem queda pra Riot: sem op.gg, nao mexe neles.
 
 .PARAMETER IgnorarAutofill
     Desliga o gate de autofill: o auto-pick volta a escolher em qualquer
@@ -134,7 +142,8 @@ param(
                                [switch] $AutoAceitarLigado,
                                [switch] $Simular,
                                [switch] $IgnorarAutofill,
-                               [bool]   $Runas = $true,
+                               [switch] $SemRunas,
+                               [switch] $SemFeiticos,
                                [switch] $Direto
 )
 
@@ -401,6 +410,7 @@ $script:LanesPedidas      = @()      # lanes pedidas no lobby, normalizadas
 $script:LanesLogadas      = $null    # ultima linha de lane escrita no log
 $script:AutofillBloqueado = $false   # autofill parou o pick nesta selecao
 $script:AutoRuna       = $true    # gravar a runa ao travar o campeao
+$script:AutoFeiticos   = -not $SemFeiticos   # trocar os feiticos junto; so por parametro
 $script:RunaJob        = $null    # busca no op.gg em andamento
 $script:CacheRunas     = @{}      # 'champId|LANE' -> runa ja buscada
 $script:RunaFeitaPara  = ''       # chave ja resolvida, pra nao repetir
@@ -425,7 +435,7 @@ if ($script:Config) {
     if ($script:Config.Bans)  { $script:Bans  = @($script:Config.Bans  | ForEach-Object { [int]$_ }) }
     $script:AutoPick = [bool]$script:Config.AutoPick
     $script:AutoBan  = [bool]$script:Config.AutoBan
-    # -Runas:$false na linha de comando ganha da preferencia salva.
+    # -SemRunas na linha de comando ganha da preferencia salva.
     if ($script:Config.Recursos) {
         foreach ($k in @($script:Recursos.Keys)) {
             $v = $script:Config.Recursos.$k
@@ -435,11 +445,13 @@ if ($script:Config) {
     # A checagem de $null importa: ghost.json gravado antes deste
     # recurso nao tem a chave, e [bool]$null daria false - desligando
     # a runa sem ninguem ter pedido.
-    if (-not $Runas) { $script:AutoRuna = $false }
-    elseif ($null -ne $script:Config.AutoRuna) {
+    if ($null -ne $script:Config.AutoRuna) {
         $script:AutoRuna = [bool]$script:Config.AutoRuna
     }
 }
+# Fora do bloco de proposito: o interruptor vale tambem na primeira abertura,
+# quando ainda nao existe ghost.json nenhum.
+if ($SemRunas) { $script:AutoRuna = $false }
 
 # ===========================================================================
 # 3. Interface
@@ -1359,7 +1371,7 @@ function Show-JanelaSetup {
         'Mesma ideia, na sua vez de banir.' `
         ([bool]$script:Recursos.Ban) 194
     $cxRuna    = New-CaixaSetup $jan 'Runa automatica' `
-        'Grava a runa do op.gg na sua pagina chamada Ghost.' `
+        'Runa do op.gg na pagina Ghost, e os dois feiticos.' `
         ([bool]$script:Recursos.Runa) 238
 
     $btnOk       = New-Botao -Texto 'OK'        -X 176 -Y 282 -W 70 -H 28 -Cor $C.Verde
@@ -1654,6 +1666,12 @@ function Test-PickLiberado {
 # estrutura, quebra. Por isso existe a queda pra recomendacao da propria Riot,
 # que vem do cliente e nao depende de internet: o recurso piora em vez de
 # parar.
+#
+# Da mesma pagina saem os dois feiticos de invocador mais jogados, e eles vao
+# junto - e o que o botao de importar do op.gg faz. Diferenca: a tecla. A
+# ordem que o site mostra nao diz nada sobre D e F, e tecla e habito. Entao
+# quem ja estava na selecao fica onde estava, e o outro entra na vaga.
+# Feitico nao tem queda pra Riot: sem op.gg, os seus ficam.
 # ---------------------------------------------------------------------------
 
 function ConvertTo-LaneOpGg {
@@ -1774,13 +1792,81 @@ function Read-RunaOpGg {
     if ($ids.Count -lt 6) { return $null }
 
     $runa = [pscustomobject]@{
-        Primary = [int]$m.Groups[1].Value
-        Sub     = [int]$m.Groups[2].Value
-        Perks   = $ids
-        Fonte   = 'op.gg'
+        Primary  = [int]$m.Groups[1].Value
+        Sub      = [int]$m.Groups[2].Value
+        Perks    = $ids
+        Fonte    = 'op.gg'
+        # Nulo quando a tabela de feiticos nao veio: a runa nao depende dela.
+        Feiticos = (Read-FeiticosOpGg -Html $html)
     }
     if (-not (Test-RunaSensata $runa)) { return $null }
     return $runa
+}
+
+# Feiticos de invocador. A chave e o nome do arquivo de imagem, porque e assim
+# que o op.gg os identifica na pagina - e esse nome e o identificador oficial
+# da Riot (SummonerDot e Incendiar, SummonerHaste e Fantasma). Ids e nomes
+# conferidos no Data Dragon 16.18.1; id de feitico nao muda entre patches.
+# Nome sem acento porque este arquivo e ASCII.
+function Get-TabelaFeiticos {
+    return @{
+        SummonerFlash    = @(4,  'Flash')
+        SummonerTeleport = @(12, 'Teleporte')
+        SummonerDot      = @(14, 'Incendiar')
+        SummonerHeal     = @(7,  'Curar')
+        SummonerExhaust  = @(3,  'Exaustao')
+        SummonerBarrier  = @(21, 'Barreira')
+        SummonerBoost    = @(1,  'Purificar')
+        SummonerHaste    = @(6,  'Fantasma')
+        SummonerSmite    = @(11, 'Golpear')
+        SummonerMana     = @(13, 'Clareza')
+        SummonerSnowball = @(32, 'Marca')
+    }
+}
+
+function Get-NomeFeitico {
+    param([int]$Id)
+    foreach ($v in (Get-TabelaFeiticos).Values) { if ([int]$v[0] -eq $Id) { return $v[1] } }
+    return "feitico $Id"
+}
+
+# Dois ids, ambos da tabela, diferentes entre si. Mesma logica da runa: o
+# cliente nao valida, entao quem barra somos nos.
+function Test-FeiticosSensatos {
+    param($Feiticos)
+    $ids = @($Feiticos | Where-Object { $null -ne $_ })
+    if ($ids.Count -ne 2) { return $false }
+    $validos = @((Get-TabelaFeiticos).Values | ForEach-Object { [int]$_[0] })
+    foreach ($i in $ids) { if ([int]$i -notin $validos) { return $false } }
+    return ([int]$ids[0] -ne [int]$ids[1])
+}
+
+# Os feiticos nao vem no bloco de importar - so na tabela renderizada, como
+# imagem. A primeira dupla depois do cabecalho "Summoner spells" e a mais
+# jogada; conferi em top, mid, jungle, adc e suporte e a tabela vem sempre
+# nessa ordem. Sem o cabecalho nao arrisco: a primeira imagem de feitico da
+# pagina poderia ser de outra secao.
+function Read-FeiticosOpGg {
+    param([string]$Html)
+
+    if (-not $Html) { return $null }
+    $ini = $Html.IndexOf('>Summoner spells<', [System.StringComparison]::Ordinal)
+    if ($ini -lt 0) { return $null }
+
+    $ms = [regex]::Matches($Html.Substring($ini), 'spell/(Summoner\w+)\.png')
+    if ($ms.Count -lt 2) { return $null }
+    # A dupla vem junta, na mesma linha da tabela. Longe demais e outra coisa.
+    if (($ms[1].Index - $ms[0].Index) -gt 2000) { return $null }
+
+    $tab = Get-TabelaFeiticos
+    $ids = @()
+    foreach ($m in @($ms[0], $ms[1])) {
+        $k = $m.Groups[1].Value
+        if (-not $tab.ContainsKey($k)) { return $null }
+        $ids += [int]$tab[$k][0]
+    }
+    if (-not (Test-FeiticosSensatos $ids)) { return $null }
+    return $ids
 }
 
 # A queda: a recomendacao da propria Riot, servida pelo cliente. Nao e a build
@@ -1800,10 +1886,11 @@ function Get-RunaRiot {
     if ($ids.Count -lt 6) { return $null }
 
     $runa = [pscustomobject]@{
-        Primary = [int]$p.primaryPerkStyleId
-        Sub     = [int]$p.secondaryPerkStyleId
-        Perks   = $ids
-        Fonte   = 'Riot'
+        Primary  = [int]$p.primaryPerkStyleId
+        Sub      = [int]$p.secondaryPerkStyleId
+        Perks    = $ids
+        Fonte    = 'Riot'
+        Feiticos = $null      # a Riot nao recomenda feitico por aqui
     }
     if (-not (Test-RunaSensata $runa)) { return $null }
     return $runa
@@ -1869,6 +1956,54 @@ function Set-RunaGhost {
     return $true
 }
 
+# Poe os dois feiticos nas teclas D e F. A regra da tecla: se um dos dois ja
+# esta na sua selecao, fica onde estava; o outro entra na vaga que sobrou.
+# Quem joga Flash no F ha anos nao quer o Ghost trocando isso a cada partida.
+# Sem nenhum dos dois na selecao, vai na ordem do op.gg.
+function Set-FeiticosGhost {
+    param($Feiticos, [int]$AtualD, [int]$AtualF)
+
+    # Segunda checagem, como na runa: esta funcao e a que escreve.
+    if (-not (Test-FeiticosSensatos $Feiticos)) { return $false }
+    $a = [int]$Feiticos[0]
+    $b = [int]$Feiticos[1]
+
+    # Ja esta assim, em qualquer ordem: nao tem o que fazer.
+    if (($AtualD -eq $a -and $AtualF -eq $b) -or ($AtualD -eq $b -and $AtualF -eq $a)) {
+        return $true
+    }
+
+    $d = $a; $f = $b
+    if ($a -eq $AtualF -or $b -eq $AtualD) { $d = $b; $f = $a }
+
+    $texto = '{0} + {1}' -f (Get-NomeFeitico $d), (Get-NomeFeitico $f)
+    if ($Simular) {
+        Write-Log ("SIMULADO: feiticos {0}." -f $texto) $C.Azul
+        return $true
+    }
+
+    $corpo = '{"spell1Id":' + $d + ',"spell2Id":' + $f + '}'
+    $r = Invoke-Lcu -Session $script:Session -Method PATCH -JsonBody $corpo `
+             -Path '/lol-champ-select/v1/session/my-selection'
+    if ($r.Status -lt 200 -or $r.Status -ge 300) {
+        Write-Log ("Falhou ao trocar os feiticos (HTTP {0})." -f $r.Status) $C.Vermelho
+        return $false
+    }
+    Write-Log ("Feiticos: {0}." -f $texto) $C.Verde
+    return $true
+}
+
+# Runa e feiticos saem da mesma pagina e se aplicam juntos - mas cada um pelo
+# seu caminho, porque falhar num nao pode barrar o outro: sem pagina "Ghost"
+# a runa nao grava, e nem por isso os feiticos deixam de entrar.
+function Set-RunaEFeiticos {
+    param($Runa, [string]$Campeao, [int]$FeiticoD, [int]$FeiticoF)
+    [void](Set-RunaGhost -Runa $Runa -Campeao $Campeao)
+    if ($script:AutoFeiticos -and $Runa.Feiticos) {
+        [void](Set-FeiticosGhost -Feiticos $Runa.Feiticos -AtualD $FeiticoD -AtualF $FeiticoF)
+    }
+}
+
 # Maquina de estado, chamada a cada tick da selecao. Nao trava a UI em momento
 # nenhum: comeca a busca num tick e colhe o resultado em outro.
 function Update-Runa {
@@ -1881,10 +2016,14 @@ function Update-Runa {
 
     $champ = 0
     $lane  = ''
+    $fD    = 0     # feiticos que estao na sua selecao agora, pra manter a tecla
+    $fF    = 0
     foreach ($p in @($Sessao.myTeam)) {
         if ([int]$p.cellId -eq $eu) {
             $champ = [int]$p.championId
             $lane  = [string]$p.assignedPosition
+            $fD    = [int]$p.spell1Id
+            $fF    = [int]$p.spell2Id
             break
         }
     }
@@ -1910,7 +2049,7 @@ function Update-Runa {
 
     # 1. Ja busquei isso nesta sessao do app.
     if ($script:CacheRunas.ContainsKey($chave)) {
-        [void](Set-RunaGhost -Runa $script:CacheRunas[$chave] -Campeao $nome)
+        Set-RunaEFeiticos -Runa $script:CacheRunas[$chave] -Campeao $nome -FeiticoD $fD -FeiticoF $fF
         $script:RunaFeitaPara = $chave   # deu ou nao, nao insiste a cada tick
         return
     }
@@ -1930,13 +2069,16 @@ function Update-Runa {
             Write-Log 'op.gg nao respondeu. Usando a recomendada da Riot.' $C.Ambar
             $runa = Get-RunaRiot -ChampId $champ -Lane $lane
         }
+        elseif ($script:AutoFeiticos -and -not $runa.Feiticos) {
+            Write-Log 'op.gg veio sem a tabela de feiticos; deixei os seus.' $C.Fraco
+        }
         if ($runa) { $script:CacheRunas[$chave] = $runa }
         else {
             Write-Log ("Nao achei runa pra {0}." -f $nome) $C.Ambar
             $script:RunaFeitaPara = $chave
             return
         }
-        [void](Set-RunaGhost -Runa $runa -Campeao $nome)
+        Set-RunaEFeiticos -Runa $runa -Campeao $nome -FeiticoD $fD -FeiticoF $fF
         $script:RunaFeitaPara = $chave
         return
     }
@@ -1948,7 +2090,7 @@ function Update-Runa {
     if (-not $script:RunaJob) {
         # Sem lane (cega, ARAM) ou sem alias: vai direto pra Riot.
         $runa = Get-RunaRiot -ChampId $champ -Lane $lane
-        if ($runa) { $script:CacheRunas[$chave] = $runa; [void](Set-RunaGhost -Runa $runa -Campeao $nome) }
+        if ($runa) { $script:CacheRunas[$chave] = $runa; Set-RunaEFeiticos -Runa $runa -Campeao $nome -FeiticoD $fD -FeiticoF $fF }
         else { Write-Log ("Nao achei runa pra {0}." -f $nome) $C.Ambar }
         $script:RunaFeitaPara = $chave
         return
