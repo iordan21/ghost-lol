@@ -182,7 +182,7 @@ Automação de cliente é área cinzenta nos termos da Riot. O Ghost usa só a A
 
 ## Sobre
 
-Escrito com assistência de IA (Claude). As decisões técnicas acima são as que orientaram o código, e estão comentadas dentro de cada script.
+Fiz o Ghost pra usar no meu dia a dia de LoL. A ideia, o que cada parte faz e os testes dentro do jogo são meus; usei IA (Claude) pra ajudar a escrever o código.
 
 ## Licença
 
