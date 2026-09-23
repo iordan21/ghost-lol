@@ -16,7 +16,8 @@ HUD flutuante para o League of Legends: aceita a partida automaticamente e troca
 - **Runa automática**: travou o campeão, busca a runa mais jogada dele naquela lane no op.gg e grava na sua página `Ghost` — e coloca os dois feitiços de invocador que vão com ela, sem trocar a tecla do que você já usava
 - **Tela de abertura**: você marca quais automações quer, e a HUD sobe só com elas
 - Atalhos globais: `Ctrl+Alt+A` (auto-aceitar) e `Ctrl+Alt+O` (offline/online)
-- Mostra em que ponto o cliente está: fora de fila, na fila, seleção de campeão, em partida
+- A barra do topo diz em que ponto o cliente está: fora de fila, na fila, seleção de campeão, em partida
+- **Sai do caminho no jogo**: a partida começou, a HUD vira uma barrinha só com o status do chat — e volta sozinha no fim
 - Janela sem borda, arrastável, sempre por cima — e reabre onde você deixou
 
 Um script PowerShell, sem instalação, uma instância por vez. A única coisa que vem de fora é a runa do op.gg, e ela tem plano B.
@@ -50,13 +51,25 @@ Preferências ficam em `%APPDATA%\Ghost\ghost.json` — apagar o arquivo volta t
 
 ## Escolher o que aparece
 
-O Ghost faz cinco coisas e ninguém usa as cinco. Então ele pergunta antes de subir: você marca o que quer, aperta OK, e a HUD aparece só com aquilo. **A altura da janela é resultado do que ficou ligado**, não um número fixo — marcando só status e auto-aceitar ela fica com pouco mais de um terço do tamanho cheio.
+O Ghost faz cinco coisas e ninguém usa as cinco. Então ele pergunta antes de subir: você marca o que quer, aperta OK, e a HUD aparece só com aquilo. **A altura da janela é resultado do que ficou ligado**, não um número fixo: cada grupo é uma linha de botões, e o que você desmarca não ocupa espaço.
 
 A escolha fica salva. **Clique direito na barra do topo** reabre a tela; `-Direto` pula a pergunta e usa o que estava salvo. Desmarcar ali **desliga a automação junto**, não só esconde o botão. O `_` ao lado do `X` minimiza para a barra de tarefas.
 
+Não tem texto fixo além do nome dos botões. **Passe o mouse** num deles para ver o que faz e qual o atalho; na barra do topo aparecem o seu nick e de quanto em quanto tempo o Ghost está checando a partida.
+
+## Durante a partida
+
+![A HUD recolhida no jogo](ghost-jogo.png)
+
+Quando o jogo abre, a HUD **recolhe para a barra do topo**, com o status do chat e mais nada — dentro da partida é a única coisa que ainda muda, pelo `Ctrl+Alt+O`. A partida acabou, ela volta sozinha.
+
+A barra recolhida tem **posição própria**: arraste uma vez para um canto que não atrapalhe o jogo e ela aparece lá nas próximas partidas, sem levar a HUD aberta junto. Até você arrastar, ela nasce onde a HUD estava, encostada do mesmo lado da tela.
+
+**Clique duplo na barra** recolhe e abre na mão, a qualquer hora. Recolheu fora da partida, fica recolhida até você abrir: o fim da partida só desfaz o que a partida fez.
+
 ## Escolher e banir
 
-O botão **Campeões** abre uma grade com os 173 campeões, usando os ícones que o cliente já tem em disco. Clique escolhe, clique direito bane, clique na fila tira de lá. A ordem da fila é a ordem de preferência.
+O **+**, na ponta da linha do Pick e do Ban, abre uma grade com os 173 campeões, usando os ícones que o cliente já tem em disco. Clique escolhe, clique direito bane, clique na fila tira de lá. A ordem da fila é a ordem de preferência.
 
 Na sua vez, o Ghost pega o primeiro da fila que ainda estiver livre — pulando quem já foi banido, escolhido, ou está marcado por um aliado. O ban sai direto. O pick **marca o campeão e trava depois**: marcar avisa o time o que você vai pegar, e até travar dá tempo de mudar de ideia na mão. `-SegundosAteTravar 0` volta ao instalock.
 
@@ -121,7 +134,7 @@ Porta e senha saem do `lockfile` que o cliente grava na pasta de instalação (`
 powershell -NoProfile -ExecutionPolicy Bypass -File .\testes\rodar.ps1
 ```
 
-Cinco arquivos: gate de autofill, layout da HUD, runas, feitiços e nome de campeão. Eles **recortam as funções de dentro do `ghost.ps1`** em vez de duplicar código — o script é um arquivo só, com janela e loop no nível de cima, então dot-source abriria a HUD.
+Cinco arquivos: gate de autofill, layout da HUD (inclusive recolher no jogo), runas, feitiços e nome de campeão. Eles **recortam as funções de dentro do `ghost.ps1`** em vez de duplicar código — o script é um arquivo só, com janela e loop no nível de cima, então dot-source abriria a HUD.
 
 Nenhum abre janela nem escreve na sua conta. Os de runas e feitiços buscam de verdade no op.gg e precisam de internet; o de nome de campeão precisa do cliente aberto, e se pula sozinho se estiver fechado.
 
@@ -137,7 +150,9 @@ Nenhum abre janela nem escreve na sua conta. Os de runas e feitiços buscam de v
 
 **`.ico` todo em BMP** — o `System.Drawing.Icon` do .NET Framework não lê entrada PNG dentro de `.ico`.
 
-**A fase do cliente define o ritmo da checagem** — em seleção de campeão, em partida ou na tela de fim não existe ready check para pegar, e essas são justo as fases longas. Nelas a checagem cai de `-IntervaloMs` para um tick a cada ~3s — a HUD mostra o intervalo exato, que com os 700ms padrão dá 2,8s, porque a conta arredonda em ticks inteiros. Fase desconhecida mantém o ritmo rápido: checar demais custa CPU, checar de menos perde a partida.
+**A fase do cliente define o ritmo da checagem** — em seleção de campeão, em partida ou na tela de fim não existe ready check para pegar, e essas são justo as fases longas. Nelas a checagem cai de `-IntervaloMs` para um tick a cada ~3s — a dica da barra do topo mostra o intervalo exato, que com os 700ms padrão dá 2,8s, porque a conta arredonda em ticks inteiros. Fase desconhecida mantém o ritmo rápido: checar demais custa CPU, checar de menos perde a partida.
+
+**Texto fixo na HUD, só quando tem problema** — títulos de seção, o lembrete dos atalhos, a linha da fase e o ON/OFF do auto-aceitar saíram. Com um botão por grupo o nome já explica, e ligado ou desligado é a cor, como em todos os outros botões. O que ainda precisava de texto foi para a dica do mouse. A única linha fixa que sobrou é o aviso de atalho tomado por outro app, e ela só aparece quando isso acontece: atalho que não funciona tem que estar na cara, não escondido numa dica.
 
 **Barra normal no caminho de saída do `curl -K`** — dentro de aspas num arquivo de configuração o `curl` trata `\` como início de escape: com `C:\Users\...` ele baixa, conta os bytes e grava **zero** arquivos, calado. Com `C:/Users/...` funciona. Essa pegou duas vezes — nos 173 ícones, que vêm numa chamada só porque na linha de comando a lista passaria de 22 mil caracteres, e depois na busca do op.gg.
 

@@ -87,17 +87,26 @@
     Desmarcar ali nao esconde e sim desliga: recurso invisivel que
     continuasse agindo por tras seria pior que os dois outros estados.
 
+    HUD recolhida:
+    quando o jogo abre, a HUD encolhe pra barra do topo com o status do
+    chat e mais nada - dentro da partida e a unica coisa que ainda muda,
+    pelo Ctrl+Alt+O. Quando a partida acaba ela volta sozinha. Clique
+    duplo na barra recolhe e abre na mao, a qualquer hora. A barra
+    recolhida tem posicao propria: arraste uma vez pra um canto que nao
+    atrapalhe o jogo, e e la que ela aparece nas proximas partidas.
+
     Ritmo da checagem:
     a fase do gameflow diz quando ready check e impossivel - selecao de
     campeao, partida em andamento, tela de fim. Nessas o Ghost cai de
-    -IntervaloMs para um tick a cada ~3s - o valor exato aparece na HUD,
-    porque a conta arredonda em ticks inteiros e com 700ms da 2,8s. Isso
+    -IntervaloMs para um tick a cada ~3s - o valor exato aparece na dica
+    da barra do topo, porque a conta arredonda em ticks inteiros e com
+    700ms da 2,8s. Isso
     ainda pega qualquer surpresa. Dentro do jogo,
     que e onde CPU importa, isso corta a maioria dos processos de curl.
 
     Preferencias:
-    posicao da janela, estado dos tres automaticos e as filas de campeao
-    ficam em
+    posicao da janela (e a da barra recolhida), estado dos automaticos e
+    as filas de campeao ficam em
     %APPDATA%\Ghost\ghost.json. Apagar o arquivo volta tudo ao padrao.
 
     Obs: sem acento no codigo de proposito. PS 5.1 le .ps1 sem BOM como ANSI.
@@ -361,6 +370,10 @@ $script:AceitarEm    = $null    # com -AtrasoSegundos, a hora marcada do aceite
 $script:FasesSemFila = @('None', 'ChampSelect', 'GameStart', 'InProgress',
                          'WaitingForStats', 'PreEndOfGame', 'EndOfGame', 'Reconnect')
 
+# Fases com o jogo aberto na tela. Nelas a HUD recolhe (ver Update-Fase).
+# Reconnect fica de fora: ali o jogo caiu e quem esta na frente e o cliente.
+$script:FasesDeJogo = @('GameStart', 'InProgress')
+
 # Se o auto-pick ou o auto-ban estiver ligado, selecao de campeao volta pro
 # ritmo rapido: la o turno dura poucos segundos e perder a janela e perder a
 # vez. Funcao, e nao lista fixa, porque isso muda com o clique do botao.
@@ -388,8 +401,11 @@ function Export-Config {
     try {
         $dir = Split-Path $script:ArqConfig -Parent
         if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
+        $px = $null; $py = $null
+        if ($script:PosPilula) { $px = $script:PosPilula.X; $py = $script:PosPilula.Y }
         $json = [pscustomobject]@{
             X = $X; Y = $Y; AutoAceitar = $Auto
+            PilulaX = $px; PilulaY = $py
             Picks = @($script:Picks); Bans = @($script:Bans)
             AutoPick = $script:AutoPick; AutoBan = $script:AutoBan
             AutoRuna = $script:AutoRuna
@@ -420,6 +436,16 @@ $script:RunaJob        = $null    # busca no op.gg em andamento
 $script:CacheRunas     = @{}      # 'champId|LANE' -> runa ja buscada
 $script:RunaFeitaPara  = ''       # chave ja resolvida, pra nao repetir
 $script:AvisouSemPagina = $false  # o aviso de pagina Ghost sai uma vez
+
+# HUD recolhida: so a barra do topo. Recolhe quando o jogo abre, volta
+# quando ele fecha, e o clique duplo na barra faz o mesmo na mao.
+$script:Compacta        = $false
+$script:RecolheuNoJogo  = $false   # recolheu com a partida aberta: volta no fim
+$script:EmJogo          = $false   # a ultima fase lida era de jogo aberto
+$script:PosCheia        = $null    # onde a HUD inteira estava ao recolher
+$script:PosPilula       = $null    # onde a barra recolhida fica; salva a parte
+$script:Nick            = ''       # vai pra dica da barra, nao pra barra
+$script:AvisoAtalho     = ''       # atalho tomado por outro app, se houver
 
 # Quais partes da HUD existem nesta sessao. A tela de abertura escreve
 # isto e Update-LayoutHud se monta em cima - nada de botao desligado
@@ -456,6 +482,9 @@ if ($script:Config) {
     # So os dois valores validos entram; qualquer outra coisa e "onde estava".
     if ([string]$script:Config.FlashEm -in @('D', 'F')) {
         $script:FlashEm = [string]$script:Config.FlashEm
+    }
+    if ($null -ne $script:Config.PilulaX -and $null -ne $script:Config.PilulaY) {
+        $script:PosPilula = New-Object System.Drawing.Point([int]$script:Config.PilulaX, [int]$script:Config.PilulaY)
     }
 }
 # Fora do bloco de proposito: o interruptor vale tambem na primeira abertura,
@@ -571,10 +600,13 @@ $dot.Location  = New-Object System.Drawing.Point(8, 4)
 $dot.AutoSize  = $true
 $header.Controls.Add($dot)
 
+# A barra diz em que ponto o cliente esta - e, recolhida, o status do chat.
+# O nick morava aqui e foi pra dica: e sempre o mesmo, entao nao informava
+# nada, e a fase tinha uma linha so dela logo abaixo. Agora e uma linha so.
 $titulo           = New-Object System.Windows.Forms.Label
 $titulo.Text      = 'conectando...'
 $titulo.ForeColor = $C.Texto
-$titulo.Font      = $FonteTitulo
+$titulo.Font      = New-Object System.Drawing.Font('Segoe UI', 9)
 $titulo.Location  = New-Object System.Drawing.Point(28, 7)
 # 146 e nao 168: o rotulo ia ate x=196 e cobria 18 dos 24 pixels do botao de
 # minimizar, que comeca em 178. Controle adicionado depois no WinForms fica
@@ -625,6 +657,13 @@ $soltarArraste = {
     $script:Arrastando = $false
     # Soltou a janela fora de qualquer monitor? Traz de volta pro padrao.
     if (-not (Test-PosicaoVisivel $form.Location)) { $form.Location = Get-PosicaoPadrao }
+    # Recolhida, a posicao e da barra e fica guardada a parte: a HUD inteira
+    # volta pro lugar dela quando abrir, e a barra volta pra ca na proxima.
+    # So se arrastou de verdade: todo clique passa por aqui, e guardar num
+    # clique parado congelaria a barra no ponto calculado da primeira vez.
+    if ($script:Compacta -and $script:FormIni -and $form.Location -ne $script:FormIni) {
+        $script:PosPilula = $form.Location
+    }
 }
 foreach ($ctl in @($header, $titulo, $dot)) {
     $ctl.Add_MouseDown($iniciarArraste)
@@ -650,59 +689,54 @@ $reabrirSetup = {
 }
 foreach ($ctl in @($header, $titulo, $dot)) { $ctl.Add_MouseUp($reabrirSetup) }
 
-# --- fase do cliente ---
-# Sai da mesma consulta que decide o ritmo da checagem (secao 5), entao mostrar
-# aqui nao custa chamada nenhuma.
-$lblFase           = New-Object System.Windows.Forms.Label
-$lblFase.Text      = ''
-$lblFase.ForeColor = $C.Fraco
-$lblFase.Font      = $FonteMini
-$lblFase.Location  = New-Object System.Drawing.Point(13, 34)
-$lblFase.Size      = New-Object System.Drawing.Size(214, 14)
-$form.Controls.Add($lblFase)
+# Clique duplo recolhe e abre a HUD na mao - o mesmo que a partida faz
+# sozinha em Update-Fase.
+$alternarCompacta = { Invoke-Protegido -Onde 'recolher' -Bloco { Set-Compacta (-not $script:Compacta) } }
+foreach ($ctl in @($header, $titulo, $dot)) { $ctl.Add_DoubleClick($alternarCompacta) }
 
-# --- auto-aceitar ---
-$btnAuto = New-Botao -Texto 'AUTO-ACEITAR: OFF' -X 12 -Y 54 -W 214 -H 32 -Cor $C.Cinza
-$form.Controls.Add($btnAuto)
-
-# --- selecao de campeao ---
-$lblSelecao           = New-Object System.Windows.Forms.Label
-$lblSelecao.Text      = 'SELECAO DE CAMPEAO'
-$lblSelecao.ForeColor = $C.Fraco
-$lblSelecao.Font      = $FonteMini
-$lblSelecao.Location  = New-Object System.Drawing.Point(13, 94)
-$lblSelecao.AutoSize  = $true
-$form.Controls.Add($lblSelecao)
+# Visual enxuto: sem titulo de secao e sem linha de lembrete. Os botoes se
+# explicam pelo nome, e o que precisava de texto - os atalhos, o nick, o
+# ritmo da checagem - mora na dica, a um passar de mouse.
+$script:Dica              = New-Object System.Windows.Forms.ToolTip
+$script:Dica.InitialDelay = 400
 
 # As posicoes aqui sao provisorias: Update-LayoutHud recoloca tudo assim
 # que a janela aparece, ja sabendo quais recursos ficaram ligados.
-$btnPick     = New-Botao -Texto 'Pick'      -X 12  -Y 112 -W 50  -H 28 -Cor $C.Painel
-$btnBan      = New-Botao -Texto 'Ban'       -X 67  -Y 112 -W 50  -H 28 -Cor $C.Painel
-$btnRuna     = New-Botao -Texto 'Runa'      -X 122 -Y 112 -W 50  -H 28 -Cor $C.Painel
-$btnCampeoes = New-Botao -Texto 'Campeoes'  -X 12  -Y 146 -W 214 -H 28 -Cor $C.Painel
+$btnAuto     = New-Botao -Texto 'Auto-aceitar' -X 12 -Y 37 -W 214 -H 28 -Cor $C.Painel
+$form.Controls.Add($btnAuto)
+
+# O + abre a grade de campeoes. Era um botao da largura toda numa linha so
+# dele; quadrado na ponta da linha do Pick e do Ban diz o mesmo.
+$btnPick     = New-Botao -Texto 'Pick'      -X 12  -Y 71 -W 50  -H 28 -Cor $C.Painel
+$btnBan      = New-Botao -Texto 'Ban'       -X 67  -Y 71 -W 50  -H 28 -Cor $C.Painel
+$btnRuna     = New-Botao -Texto 'Runa'      -X 122 -Y 71 -W 50  -H 28 -Cor $C.Painel
+$btnCampeoes = New-Botao -Texto '+'         -X 198 -Y 71 -W 28  -H 28 -Cor $C.Painel
+$btnCampeoes.Font = New-Object System.Drawing.Font('Segoe UI', 11)
 $form.Controls.AddRange(@($btnPick, $btnBan, $btnRuna, $btnCampeoes))
 
-# --- status do chat ---
-$lblStatus           = New-Object System.Windows.Forms.Label
-$lblStatus.Text      = 'STATUS NO CHAT'
-$lblStatus.ForeColor = $C.Fraco
-$lblStatus.Font      = $FonteMini
-$lblStatus.Location  = New-Object System.Drawing.Point(13, 146)
-$lblStatus.AutoSize  = $true
-$form.Controls.Add($lblStatus)
-
-$btnOnline  = New-Botao -Texto 'Online'  -X 12  -Y 164 -W 68 -H 28 -Cor $C.Painel
-$btnAusente = New-Botao -Texto 'Ausente' -X 85  -Y 164 -W 68 -H 28 -Cor $C.Painel
-$btnOffline = New-Botao -Texto 'Offline' -X 158 -Y 164 -W 68 -H 28 -Cor $C.Painel
+$btnOnline  = New-Botao -Texto 'Online'  -X 12  -Y 105 -W 68 -H 28 -Cor $C.Painel
+$btnAusente = New-Botao -Texto 'Ausente' -X 85  -Y 105 -W 68 -H 28 -Cor $C.Painel
+$btnOffline = New-Botao -Texto 'Offline' -X 158 -Y 105 -W 68 -H 28 -Cor $C.Painel
 $form.Controls.AddRange(@($btnOnline, $btnAusente, $btnOffline))
 
-# --- lembrete dos atalhos ---
+$script:Dica.SetToolTip($btnAuto,     'Aceita a partida sozinho. Ctrl+Alt+A liga e desliga.')
+$script:Dica.SetToolTip($btnPick,     'Auto-pick: o primeiro livre da sua fila.')
+$script:Dica.SetToolTip($btnBan,      'Auto-ban: o primeiro livre da sua fila.')
+$script:Dica.SetToolTip($btnRuna,     'Runa do op.gg e feiticos, quando voce trava o campeao.')
+$script:Dica.SetToolTip($btnCampeoes, 'Montar as filas de pick e ban.')
+$script:Dica.SetToolTip($btnOffline,  'Fica fixado: se o cliente mudar, o Ghost devolve. Ctrl+Alt+O alterna.')
+
+# --- atalho tomado ---
+# A unica linha de texto fixo que sobrou, e so aparece quando tem problema:
+# atalho que outro app ja registrou nao funciona, e isso tem que estar na
+# cara, nao escondido numa dica.
 $lblAtalhos           = New-Object System.Windows.Forms.Label
-$lblAtalhos.Text      = 'Ctrl+Alt+A aceite   |   Ctrl+Alt+O offline'
-$lblAtalhos.ForeColor = $C.Fraco
+$lblAtalhos.Text      = ''
+$lblAtalhos.ForeColor = $C.Ambar
 $lblAtalhos.Font      = $FonteMini
-$lblAtalhos.Location  = New-Object System.Drawing.Point(13, 202)
+$lblAtalhos.Location  = New-Object System.Drawing.Point(13, 139)
 $lblAtalhos.Size      = New-Object System.Drawing.Size(214, 14)
+$lblAtalhos.Visible   = $false
 $form.Controls.Add($lblAtalhos)
 
 # --- linha de log ---
@@ -710,7 +744,7 @@ $lblLog           = New-Object System.Windows.Forms.Label
 $lblLog.Text      = ''
 $lblLog.ForeColor = $C.Fraco
 $lblLog.Font      = $FonteMini
-$lblLog.Location  = New-Object System.Drawing.Point(13, 220)
+$lblLog.Location  = New-Object System.Drawing.Point(13, 140)
 $lblLog.Size      = New-Object System.Drawing.Size(214, 16)
 $form.Controls.Add($lblLog)
 
@@ -740,16 +774,17 @@ function Invoke-Protegido {
     }
 }
 
+# Mesma lingua dos outros botoes: ligado e cheio de cor, desligado e apagado.
+# O ON/OFF escrito sobrava - era o unico botao que dizia o estado por extenso.
 function Update-BotaoAuto {
     if ($script:AutoAceitar) {
-        $btnAuto.Text      = 'AUTO-ACEITAR: ON'
         $btnAuto.BackColor = $C.Verde
+        $btnAuto.ForeColor = $C.Texto
     }
     else {
-        $btnAuto.Text      = 'AUTO-ACEITAR: OFF'
-        $btnAuto.BackColor = $C.Cinza
+        $btnAuto.BackColor = $C.Painel
+        $btnAuto.ForeColor = $C.Fraco
     }
-    $btnAuto.ForeColor = $C.Texto
 }
 
 # Pinta o botao do status que esta ativo de verdade no cliente - inclusive se
@@ -769,6 +804,8 @@ function Update-BotoesStatus {
         'offline' { $btnOffline.BackColor = $C.Azul;     $btnOffline.ForeColor = $C.Texto }
         'dnd'     { $btnAusente.BackColor = $C.Vermelho; $btnAusente.ForeColor = $C.Texto }
     }
+    # Recolhida, a barra mostra o status: tem que acompanhar.
+    Update-Titulo
 }
 
 function Update-BotoesSelecao {
@@ -813,39 +850,59 @@ function Set-CorBotaoSelecao {
 #
 # Entao a altura passa a ser resultado do que esta ligado, e nao um numero
 # fixo no codigo.
+#
+# Toda linha tem a mesma altura e o mesmo vao, sem titulo de secao: com um
+# botao por grupo, o proprio botao ja separa um grupo do outro.
 # ---------------------------------------------------------------------------
 
-$script:HudX    = 12    # margem esquerda
-$script:HudLarg = 214   # largura util
-$script:HudVao  = 5     # espaco entre botoes da mesma linha
+$script:LargCheia = 238   # largura da HUD aberta
+$script:HudX      = 12    # margem esquerda
+$script:HudLarg   = 214   # largura util
+$script:HudVao    = 6     # entre botoes, na linha e entre linhas
+$script:HudAlt    = 28    # altura de toda linha de botao
 
-# Espalha N botoes na largura util. O ultimo fecha na margem direita em vez de
-# usar a largura calculada: 214 dividido por 3 sobra 1px, e sem isso a coluna
-# da direita nao alinha com as outras linhas.
+# Espalha N botoes na largura pedida. O ultimo fecha na margem direita em vez
+# de usar a largura calculada: 214 dividido por 3 nao e inteiro, e sem isso a
+# coluna da direita nao alinha com as outras linhas.
 function Set-LinhaBotoes {
-    param($Botoes, [int]$Y)
+    param($Botoes, [int]$Y, [int]$Largura = $script:HudLarg)
     $lista = @($Botoes)
     if ($lista.Count -eq 0) { return }
-    $larg = [int](($script:HudLarg - ($script:HudVao * ($lista.Count - 1))) / $lista.Count)
+    $larg = [int](($Largura - ($script:HudVao * ($lista.Count - 1))) / $lista.Count)
     $x = $script:HudX
     for ($i = 0; $i -lt $lista.Count; $i++) {
-        $w = if ($i -eq $lista.Count - 1) { $script:HudX + $script:HudLarg - $x } else { $larg }
+        $w = if ($i -eq $lista.Count - 1) { $script:HudX + $Largura - $x } else { $larg }
         $lista[$i].Location = New-Object System.Drawing.Point($x, $Y)
-        $lista[$i].Size     = New-Object System.Drawing.Size($w, 28)
+        $lista[$i].Size     = New-Object System.Drawing.Size($w, $script:HudAlt)
         $lista[$i].Visible  = $true
         $x += $w + $script:HudVao
     }
 }
 
 function Update-LayoutHud {
-    $y = 54
+    $corpo = @($btnAuto, $btnPick, $btnBan, $btnRuna, $btnCampeoes,
+               $btnOnline, $btnAusente, $btnOffline, $lblAtalhos, $lblLog)
+
+    # Recolhida: so a barra do topo, na largura do texto dela.
+    if ($script:Compacta) {
+        foreach ($ctl in $corpo) { $ctl.Visible = $false }
+        $btnMin.Visible = $false; $btnFechar.Visible = $false
+        Update-Titulo   # e ele que mede o texto e acerta a largura
+        if (-not (Test-PosicaoVisivel $form.Location)) { $form.Location = Get-PosicaoPadrao }
+        return
+    }
+
+    $btnMin.Visible = $true; $btnFechar.Visible = $true
+    $header.Size = New-Object System.Drawing.Size(($script:LargCheia - 2), 28)
+    $titulo.Size = New-Object System.Drawing.Size(146, 16)
+    $passo = $script:HudAlt + $script:HudVao
+    $y = 37
 
     # --- auto-aceitar ---
     $btnAuto.Visible = [bool]$script:Recursos.Aceitar
     if ($script:Recursos.Aceitar) {
-        $btnAuto.Location = New-Object System.Drawing.Point($script:HudX, $y)
-        $btnAuto.Size     = New-Object System.Drawing.Size($script:HudLarg, 32)
-        $y += 40
+        Set-LinhaBotoes -Botoes @($btnAuto) -Y $y
+        $y += $passo
     }
 
     # --- selecao de campeao ---
@@ -854,48 +911,41 @@ function Update-LayoutHud {
     if ($script:Recursos.Pick) { $linha += $btnPick }
     if ($script:Recursos.Ban)  { $linha += $btnBan }
     if ($script:Recursos.Runa) { $linha += $btnRuna }
-
-    $lblSelecao.Visible = ($linha.Count -gt 0)
     if ($linha.Count -gt 0) {
-        $lblSelecao.Location = New-Object System.Drawing.Point(13, $y)
-        $y += 18
-        Set-LinhaBotoes -Botoes $linha -Y $y
-        $y += 34
         # A grade so serve pra montar fila de pick e de ban. Com os dois
-        # desligados ela nao teria o que fazer, entao nem aparece.
+        # desligados ela nao teria o que fazer, entao o + nem aparece.
+        $larg = $script:HudLarg
         if ($script:Recursos.Pick -or $script:Recursos.Ban) {
-            Set-LinhaBotoes -Botoes @($btnCampeoes) -Y $y
-            $y += 34
+            $larg -= $passo
+            $btnCampeoes.Location = New-Object System.Drawing.Point(($script:HudX + $larg + $script:HudVao), $y)
+            $btnCampeoes.Size     = New-Object System.Drawing.Size($script:HudAlt, $script:HudAlt)
+            $btnCampeoes.Visible  = $true
         }
+        Set-LinhaBotoes -Botoes $linha -Y $y -Largura $larg
+        $y += $passo
     }
 
     # --- status no chat ---
-    $lblStatus.Visible = [bool]$script:Recursos.Status
-    foreach ($b in @($btnOnline, $btnAusente, $btnOffline)) {
-        $b.Visible = [bool]$script:Recursos.Status
-    }
+    foreach ($b in @($btnOnline, $btnAusente, $btnOffline)) { $b.Visible = $false }
     if ($script:Recursos.Status) {
-        $lblStatus.Location = New-Object System.Drawing.Point(13, $y)
-        $y += 18
         Set-LinhaBotoes -Botoes @($btnOnline, $btnAusente, $btnOffline) -Y $y
-        $y += 38
+        $y += $passo
     }
 
-    # --- atalhos: so lembra o que existe nesta sessao ---
-    $atalhos = @()
-    if ($script:Recursos.Aceitar) { $atalhos += 'Ctrl+Alt+A aceite' }
-    if ($script:Recursos.Status)  { $atalhos += 'Ctrl+Alt+O offline' }
-    $lblAtalhos.Visible = ($atalhos.Count -gt 0)
-    if ($atalhos.Count -gt 0) {
-        $lblAtalhos.Text     = ($atalhos -join '   |   ')
+    # --- atalho tomado por outro app ---
+    $lblAtalhos.Visible = [bool]$script:AvisoAtalho
+    if ($script:AvisoAtalho) {
+        $lblAtalhos.Text     = $script:AvisoAtalho
         $lblAtalhos.Location = New-Object System.Drawing.Point(13, $y)
-        $y += 18
+        $y += 16
     }
 
-    $lblLog.Location = New-Object System.Drawing.Point(13, $y)
-    $y += 24
+    $lblLog.Visible  = $true
+    $lblLog.Location = New-Object System.Drawing.Point(13, ($y + 1))
+    $y += 23
 
-    $form.ClientSize = New-Object System.Drawing.Size(238, $y)
+    $form.ClientSize = New-Object System.Drawing.Size($script:LargCheia, $y)
+    Update-Titulo
     # A borda de 1px sai do handler de Paint: sem invalidar, ela continua
     # desenhada na altura antiga depois que a janela encolhe.
     $form.Invalidate()
@@ -904,28 +954,126 @@ function Update-LayoutHud {
 
 # Traduz a fase crua do gameflow. [string] no switch porque switch sobre $null
 # nao entra nem no default, e a fase e $null enquanto o cliente esta fechado.
-function Update-Fase {
-    $texto = switch ([string]$script:Fase) {
-        'None'            { 'fora de fila' }
-        'Lobby'           { 'no lobby' }
-        'Matchmaking'     { 'na fila' }
-        'ReadyCheck'      { 'partida encontrada' }
-        'ChampSelect'     { 'selecao de campeao' }
-        'GameStart'       { 'entrando na partida' }
-        'InProgress'      { 'em partida' }
-        'Reconnect'       { 'esperando reconexao' }
-        'WaitingForStats' { 'fim de partida' }
-        'PreEndOfGame'    { 'fim de partida' }
-        'EndOfGame'       { 'fim de partida' }
-        default           { '' }
+function Get-TextoFase {
+    switch ([string]$script:Fase) {
+        'None'            { return 'fora de fila' }
+        'Lobby'           { return 'no lobby' }
+        'Matchmaking'     { return 'na fila' }
+        'ReadyCheck'      { return 'partida encontrada' }
+        'ChampSelect'     { return 'selecao de campeao' }
+        'GameStart'       { return 'entrando na partida' }
+        'InProgress'      { return 'em partida' }
+        'Reconnect'       { return 'esperando reconexao' }
+        'WaitingForStats' { return 'fim de partida' }
+        'PreEndOfGame'    { return 'fim de partida' }
+        'EndOfGame'       { return 'fim de partida' }
     }
-    # Nessas fases a checagem cai de proposito. Sem dizer isso a HUD pareceria
-    # travada - e dizer "ritmo lento" nao explicava nada a quem le, entao vai o
-    # intervalo em segundos.
+    return 'conectado'
+}
+
+# A barra do topo diz o que importa agora: em que ponto o cliente esta, ou,
+# recolhida, o status do chat - dentro da partida e a unica coisa que ainda
+# muda, pelo Ctrl+Alt+O. O nick e o ritmo da checagem ficam na dica.
+function Update-Titulo {
+    $texto = Get-TextoFase
+    $cor   = $C.Texto
+    if (-not $script:Session) { $texto = 'cliente fechado' }
+    elseif ($script:Compacta -and $script:Recursos.Status) {
+        switch ([string]$script:Availability) {
+            'chat'    { $texto = 'Online';  $cor = $C.Verde }
+            'away'    { $texto = 'Ausente'; $cor = $C.Ambar }
+            'dnd'     { $texto = 'Ocupado'; $cor = $C.Vermelho }
+            'offline' {
+                $texto = if ($script:OfflineFixado) { 'Offline ' + [char]0x2713 } else { 'Offline' }
+                $cor   = $C.Azul
+            }
+        }
+        # As cores sao de fundo de botao: em letra fina sobre o fundo escuro o
+        # azul quase some. Um terco mais claro, so aqui.
+        $cor = [System.Drawing.Color]::FromArgb(
+            [int]($cor.R + (255 - $cor.R) / 3), [int]($cor.G + (255 - $cor.G) / 3),
+            [int]($cor.B + (255 - $cor.B) / 3))
+    }
+    $titulo.Text      = $texto
+    $titulo.ForeColor = $cor
+
+    # Nessas fases a checagem cai de proposito. Antes isso ocupava uma linha
+    # da HUD; na dica continua dizendo o numero a quem quiser saber.
+    $dica = @()
+    if ($script:Nick) { $dica += $script:Nick }
     if ($script:AutoAceitar -and ($script:FasesSemFila -contains $script:Fase)) {
-        $texto = "$texto  -  checando a cada {0:0.#}s" -f ($script:MsLento / 1000)
+        $dica += ('checando a partida a cada {0:0.#}s' -f ($script:MsLento / 1000))
     }
-    $lblFase.Text = $texto
+    $dica += 'Clique duplo recolhe. Clique direito escolhe o que aparece.'
+    foreach ($ctl in @($header, $titulo, $dot)) { $script:Dica.SetToolTip($ctl, ($dica -join "`r`n")) }
+
+    if ($script:Compacta) { Set-TamanhoPilula }
+}
+
+# A barra recolhida tem a largura do que esta escrito nela, e nao os 238 da
+# HUD: dentro do jogo cada pixel coberto e pixel de mapa a menos.
+function Set-TamanhoPilula {
+    $w    = [System.Windows.Forms.TextRenderer]::MeasureText($titulo.Text, $titulo.Font).Width
+    $larg = [math]::Max(90, 28 + $w + 10)
+    $titulo.Size     = New-Object System.Drawing.Size(($larg - 30), 16)
+    $header.Size     = New-Object System.Drawing.Size(($larg - 2), 28)
+    $form.ClientSize = New-Object System.Drawing.Size($larg, 30)
+    $form.Invalidate()
+}
+
+# Onde a barra aparece na primeira vez, antes de voce arrastar ela pra algum
+# lugar. Na metade direita da tela ela encosta pela direita: a HUD tem 238 de
+# largura e a barra uns 100, e sem isso ela "pularia" pra longe da borda em
+# que voce deixou a janela.
+function Get-PosicaoPilula {
+    $p    = $script:PosCheia
+    $area = [System.Windows.Forms.Screen]::FromPoint($p).WorkingArea
+    $x    = $p.X
+    if (($p.X + $script:LargCheia / 2) -gt ($area.Left + $area.Width / 2)) {
+        $x = $p.X + $script:LargCheia - $form.Width
+    }
+    return New-Object System.Drawing.Point($x, $p.Y)
+}
+
+# Recolher com a partida aberta - sozinho ou no clique duplo - volta no fim
+# dela. Recolher fora da partida e escolha sua, e a partida nao desfaz.
+function Set-Compacta {
+    param([bool]$Ligar)
+    if ($Ligar -eq $script:Compacta) { return }
+    $script:RecolheuNoJogo = ($Ligar -and $script:EmJogo)
+    # O clique duplo tambem comeca um arraste. Sem cortar aqui, qualquer
+    # tremida do mouse antes de soltar puxaria a janela ja redimensionada
+    # de volta pro ponto em que o arraste comecou.
+    $script:Arrastando = $false
+    $script:FormIni    = $null
+
+    if ($Ligar) {
+        $script:PosCheia = $form.Location
+        $script:Compacta = $true
+        Update-LayoutHud
+        $form.Location = if ($script:PosPilula -and (Test-PosicaoVisivel $script:PosPilula)) {
+            $script:PosPilula
+        } else { Get-PosicaoPilula }
+    }
+    else {
+        $script:Compacta = $false
+        Update-LayoutHud
+        if ($script:PosCheia) { $form.Location = $script:PosCheia }
+        if (-not (Test-PosicaoVisivel $form.Location)) { $form.Location = Get-PosicaoPadrao }
+    }
+}
+
+# O jogo abriu: recolhe. Fechou: volta, se foi recolhida durante ele (ver
+# Set-Compacta). Age so na virada, e nao a cada chamada: abrir a HUD com
+# clique duplo no meio da partida tem que durar ate a partida acabar.
+function Update-Fase {
+    $emJogo = ($script:FasesDeJogo -contains $script:Fase)
+    if ($emJogo -ne $script:EmJogo) {
+        $script:EmJogo = $emJogo
+        if ($emJogo -and -not $script:Compacta)           { Set-Compacta $true }
+        elseif (-not $emJogo -and $script:RecolheuNoJogo) { Set-Compacta $false }
+    }
+    Update-Titulo
 }
 
 # ===========================================================================
@@ -2310,8 +2458,9 @@ function Connect-Cliente {
     if (-not $me) { return $false }   # processo no ar mas API ainda subindo
 
     $script:Session = $s
-    $titulo.Text    = if ($me.tagLine) { "$($me.gameName)#$($me.tagLine)" } else { "$($me.gameName)" }
+    $script:Nick    = if ($me.tagLine) { "$($me.gameName)#$($me.tagLine)" } else { "$($me.gameName)" }
     $dot.ForeColor  = $C.Verde
+    Update-Titulo
     return $true
 }
 
@@ -2320,7 +2469,6 @@ function Disconnect-Cliente {
     $script:Availability = $null
     $script:Fase         = $null
     $script:AceitarEm    = $null
-    $titulo.Text         = 'cliente fechado'
     $dot.ForeColor       = $C.Vermelho
     Update-BotoesStatus
     Update-Fase
@@ -2467,8 +2615,8 @@ $form.Add_Shown({
         $ocupados = @()
         if (-not $okA) { $ocupados += 'Ctrl+Alt+A' }
         if (-not $okO) { $ocupados += 'Ctrl+Alt+O' }
-        $lblAtalhos.Text      = ("Atalho em uso por outro app: {0}" -f ($ocupados -join ', '))
-        $lblAtalhos.ForeColor = $C.Ambar
+        $script:AvisoAtalho = ("Atalho em uso por outro app: {0}" -f ($ocupados -join ', '))
+        Update-LayoutHud
     }
 
     if (Connect-Cliente) {
@@ -2493,7 +2641,10 @@ $form.Add_Shown({
 # FormClosing e nao FormClosed: aqui o Handle ainda existe pra desregistrar.
 $form.Add_FormClosing({
     # Guarda onde a janela ficou e como o auto-aceitar estava, pra proxima vez.
-    Export-Config -X $form.Location.X -Y $form.Location.Y -Auto $script:AutoAceitar
+    # Fechou recolhida: vale onde a HUD aberta estava, porque e aberta que
+    # ela sobe na proxima.
+    $pos = if ($script:Compacta -and $script:PosCheia) { $script:PosCheia } else { $form.Location }
+    Export-Config -X $pos.X -Y $pos.Y -Auto $script:AutoAceitar
 
     [void][HotkeyFilter]::UnregisterHotKey($form.Handle, $script:HK_AUTO)
     [void][HotkeyFilter]::UnregisterHotKey($form.Handle, $script:HK_OFFLINE)
